@@ -93,6 +93,39 @@ try {
 Say "[3/5] Pushing to main..." Yellow
 $remoteUrl = "https://$($me.login):$token@github.com/$owner/$name.git"
 
+# git does NOT read the IE/WinINET proxy that PowerShell uses automatically,
+# so it hangs on port 443 while PowerShell succeeds. Adopt the system proxy.
+$proxyApplied = $false
+try {
+    $reg = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" -ErrorAction Stop
+    if ($reg.ProxyEnable -eq 1 -and $reg.ProxyServer) {
+        $px = $reg.ProxyServer
+        if ($px -notmatch '^https?://') { $px = "http://$px" }
+        & $git config --global http.proxy $px 2>$null
+        & $git config --global https.proxy $px 2>$null
+        $proxyApplied = $true
+        Say "      system proxy applied: $px" DarkGray
+    }
+} catch {}
+
+# Probe reachability before pushing; if still unreachable, try disabling proxy.
+$reach = & $git ls-remote "https://github.com/$owner/$name.git" 2>$null
+$reachCode = $LASTEXITCODE
+if ($reachCode -ne 0) {
+    if ($proxyApplied) {
+        Say "      proxy path failed, retrying direct..." DarkGray
+        & $git config --global --unset http.proxy 2>$null
+        & $git config --global --unset https.proxy 2>$null
+        $reach = & $git ls-remote "https://github.com/$owner/$name.git" 2>$null
+        if ($LASTEXITCODE -eq 0) { Say "      direct path works" DarkGray }
+    }
+}
+if ($reachCode -ne 0 -and $proxyApplied) {
+    # restore proxy if direct also failed (leave as-is for user visibility)
+    & $git config --global http.proxy $px 2>$null
+    & $git config --global https.proxy $px 2>$null
+}
+
 # 'git remote get-url origin' writes to stderr when absent, which trips
 # ErrorActionPreference=Stop. Use 'git remote' listing instead, inside a
 # temporarily relaxed preference. ErrorActionPreference is scoped to this file,
