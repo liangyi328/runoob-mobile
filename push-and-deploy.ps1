@@ -33,11 +33,15 @@ Say "Target repo: https://github.com/$owner/$name" White
 Set-Location $projDir
 
 # --- commit if dirty ---
-$dirty = & $git status --porcelain 2>&1
+$oldPref2 = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$dirty = & $git status --porcelain 2>$null
+$ErrorActionPreference = $oldPref2
+
 if ($dirty) {
     Say "Working tree has changes, committing..." Yellow
-    & $git add -A
-    & $git commit -m "chore: sync before deploy" | Out-Null
+    & $git add -A 2>$null
+    & $git commit -m "chore: sync before deploy" 2>$null | Out-Null
 }
 
 # --- ask token ---
@@ -88,10 +92,29 @@ try {
 # --- step 3: push ---
 Say "[3/5] Pushing to main..." Yellow
 $remoteUrl = "https://$($me.login):$token@github.com/$owner/$name.git"
-$existing = & $git remote get-url origin 2>&1
-if ($LASTEXITCODE -eq 0) { & $git remote set-url origin $remoteUrl | Out-Null }
-else { & $git remote add origin $remoteUrl | Out-Null }
 
+# 'git remote get-url origin' writes to stderr when absent, which trips
+# ErrorActionPreference=Stop. Use 'git remote' listing instead, inside a
+# temporarily relaxed preference. ErrorActionPreference is scoped to this file,
+# so changing it here cannot leak to the caller.
+$oldPref = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$remotesRaw = & $git remote 2>$null
+$ErrorActionPreference = $oldPref
+
+$remotes = @()
+if ($remotesRaw) {
+    $remotes = @($remotesRaw | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
+}
+if ($remotes -contains "origin") {
+    & $git remote set-url origin $remoteUrl 2>$null
+    Say "      remote origin updated" DarkGray
+} else {
+    & $git remote add origin $remoteUrl 2>$null
+    Say "      remote origin added" DarkGray
+}
+
+# git often writes progress to stderr; merge it so nothing trips Stop.
 $pushLog = & $git push -u origin main 2>&1
 $pushCode = $LASTEXITCODE
 $pushLog | ForEach-Object { Say "      $_" DarkGray }
