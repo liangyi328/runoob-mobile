@@ -102,11 +102,15 @@ def main():
     with open(man, encoding="utf-8") as f:
         txt = f.read()
     head = txt.split(">", 1)[0]
+    add = ""
     if 'package="' not in head:
+        add += '\n    package="com.runoob.mobile"'
+    if "android:versionCode" not in head:
+        add += '\n    android:versionCode="1"\n    android:versionName="1.0.0"'
+    if add:
         txt = txt.replace(
             '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
-            '<manifest xmlns:android="http://schemas.android.com/apk/res/android"\n'
-            '    package="com.runoob.mobile">', 1)
+            '<manifest xmlns:android="http://schemas.android.com/apk/res/android"' + add + ">", 1)
         with open(man, "w", encoding="utf-8") as f:
             f.write(txt)
     log(f"staged -> {STAGE}")
