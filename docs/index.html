@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>菜鸟教程 · 手机学习版</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#0e7a5f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="菜鸟教程">
+<meta name="description" content="菜鸟教程离线手机学习版：Python3 / NumPy / Pandas / Matplotlib">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <!-- 顶栏 -->
+  <header class="topbar" id="topbar">
+    <button class="icon-btn" id="btnMenu" aria-label="打开目录">
+      <svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+    <div class="topbar-title" id="topbarTitle">菜鸟教程</div>
+    <button class="icon-btn" id="btnSearch" aria-label="搜索">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    </button>
+    <button class="icon-btn" id="btnTheme" aria-label="切换主题">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>
+    </button>
+  </header>
+
+  <!-- 侧边目录 -->
+  <div class="overlay" id="overlay"></div>
+  <nav class="drawer" id="drawer" aria-label="教程目录">
+    <div class="drawer-head">
+      <span>教程目录</span>
+      <button class="icon-btn sm" id="btnCloseDrawer" aria-label="关闭目录">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-search">
+      <svg viewBox="0 0 24 24" class="s-icon"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="search" id="drawerFilter" placeholder="筛选章节…" autocomplete="off">
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </nav>
+
+  <!-- 搜索面板 -->
+  <div class="search-panel" id="searchPanel">
+    <div class="search-bar">
+      <svg viewBox="0 0 24 24" class="s-icon"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="search" id="searchInput" placeholder="全文搜索：如「列表推导式」" autocomplete="off">
+      <button class="icon-btn sm" id="btnCloseSearch" aria-label="关闭搜索">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+
+  <!-- 主内容 -->
+  <main class="main" id="main">
+    <div class="home" id="homeView"></div>
+    <article class="article" id="articleView" hidden>
+      <div class="article-inner" id="articleInner"></div>
+      <nav class="pager" id="pager"></nav>
+    </article>
+    <div class="loading" id="loading" hidden><div class="spinner"></div><span>加载中…</span></div>
+  </main>
+</div>
+
+<script src="vendor/highlight.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
