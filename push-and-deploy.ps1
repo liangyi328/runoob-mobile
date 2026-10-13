@@ -1,20 +1,34 @@
 # Auto push to GitHub, enable Pages, print APK instructions.
 # Usage: .\push-and-deploy.ps1 -Repo "owner/repo"
 # Pure ASCII: Windows PowerShell 5.1 reads UTF-8-without-BOM as GBK,
-# which corrupts multi-byte chars and breaks parsing. So this file is ASCII only.
+# which corrupts multi-byte chars and breaks parsing.
 
 param(
     [Parameter(Mandatory = $true)]
     [string]$Repo
 )
 
-$ErrorActionPreference = "Stop"
+# PS 5.1 + ErrorActionPreference=Stop turns git's stderr progress lines into
+# NativeCommandError records and aborts mid-push. git writes a lot on stderr,
+# so run everything in Continue mode and check $LASTEXITCODE explicitly.
+$ErrorActionPreference = "Continue"
+
 $git = "F:\Program Files\Git\cmd\git.exe"
 # $PSScriptRoot avoids hardcoding the Chinese path; PS5.1 would mis-decode it.
 $projDir = $PSScriptRoot
 
+# Never hang on a terminal username prompt; Credential Manager handles auth.
+$env:GIT_TERMINAL_PROMPT = "0"
+
 function Say($msg, $color = "White") {
     Write-Host "[runoob] $msg" -ForegroundColor $color
+}
+
+function Run-Git {
+    # Returns git output as plain strings (stderr merged), sets $script:lastCode.
+    $out = & $git @args 2>&1 | ForEach-Object { "$_" }
+    $script:lastCode = $LASTEXITCODE
+    return $out
 }
 
 Say "=== Push & Deploy: Runoob Mobile ===" Cyan
@@ -33,20 +47,18 @@ Say "Target repo: https://github.com/$owner/$name" White
 Set-Location $projDir
 
 # --- commit if dirty ---
-$oldPref2 = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
-$dirty = & $git status --porcelain 2>$null
-$ErrorActionPreference = $oldPref2
-
-if ($dirty) {
+$dirty = Run-Git status --porcelain
+if ($lastCode -eq 0 -and $dirty) {
     Say "Working tree has changes, committing..." Yellow
-    & $git add -A 2>$null
-    & $git commit -m "chore: sync before deploy" 2>$null | Out-Null
+    Run-Git add -A | Out-Null
+    Run-Git commit -m "chore: sync before deploy" | Out-Null
 }
 
-# --- ask token ---
+# --- token: used ONLY for REST API (repo check / pages enable). ---
+# git push uses Windows Credential Manager, so no token lands in .git/config.
 Say "" White
-Say "Need a GitHub Token (SSH key not linked, using HTTPS)." Yellow
+Say "Token is used ONLY for GitHub REST API calls." Yellow
+Say "git push itself uses Windows Credential Manager (no token in URLs)." DarkGray
 Say "Create at: https://github.com/settings/tokens  ->  check 'repo' scope" DarkGray
 $secure = Read-Host "Paste GitHub Token (hidden)" -AsSecureString
 $token = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
@@ -89,77 +101,60 @@ try {
     }
 }
 
-# --- step 3: push ---
-Say "[3/5] Pushing to main..." Yellow
-$remoteUrl = "https://$($me.login):$token@github.com/$owner/$name.git"
+# --- step 3: push via Credential Manager ---
+Say "[3/5] Pushing (Credential Manager, no token in URL)..." Yellow
 
 # git does NOT read the IE/WinINET proxy that PowerShell uses automatically,
-# so it hangs on port 443 while PowerShell succeeds. Adopt the system proxy.
-$proxyApplied = $false
+# so adopt the system proxy for git.
+$px = $null
 try {
     $reg = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" -ErrorAction Stop
     if ($reg.ProxyEnable -eq 1 -and $reg.ProxyServer) {
         $px = $reg.ProxyServer
         if ($px -notmatch '^https?://') { $px = "http://$px" }
-        & $git config --global http.proxy $px 2>$null
-        & $git config --global https.proxy $px 2>$null
-        $proxyApplied = $true
+        Run-Git config --global http.proxy $px | Out-Null
+        Run-Git config --global https.proxy $px | Out-Null
         Say "      system proxy applied: $px" DarkGray
     }
 } catch {}
 
-# Probe reachability before pushing; if still unreachable, try disabling proxy.
-$reach = & $git ls-remote "https://github.com/$owner/$name.git" 2>$null
-$reachCode = $LASTEXITCODE
-if ($reachCode -ne 0) {
-    if ($proxyApplied) {
-        Say "      proxy path failed, retrying direct..." DarkGray
-        & $git config --global --unset http.proxy 2>$null
-        & $git config --global --unset https.proxy 2>$null
-        $reach = & $git ls-remote "https://github.com/$owner/$name.git" 2>$null
-        if ($LASTEXITCODE -eq 0) { Say "      direct path works" DarkGray }
-    }
-}
-if ($reachCode -ne 0 -and $proxyApplied) {
-    # restore proxy if direct also failed (leave as-is for user visibility)
-    & $git config --global http.proxy $px 2>$null
-    & $git config --global https.proxy $px 2>$null
-}
+# tolerate slow uploads behind proxies (fixes RPC failed / HTTP 408)
+Run-Git config --global http.postBuffer 524288000 | Out-Null
+Run-Git config --global http.version HTTP/1.1 | Out-Null
+Run-Git config --global http.lowSpeedLimit 0 | Out-Null
+Run-Git config --global http.lowSpeedTime 300 | Out-Null
 
-# 'git remote get-url origin' writes to stderr when absent, which trips
-# ErrorActionPreference=Stop. Use 'git remote' listing instead, inside a
-# temporarily relaxed preference. ErrorActionPreference is scoped to this file,
-# so changing it here cannot leak to the caller.
-$oldPref = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
-$remotesRaw = & $git remote 2>$null
-$ErrorActionPreference = $oldPref
-
-$remotes = @()
-if ($remotesRaw) {
-    $remotes = @($remotesRaw | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
-}
-if ($remotes -contains "origin") {
-    & $git remote set-url origin $remoteUrl 2>$null
-    Say "      remote origin updated" DarkGray
+# keep origin pointing at the CLEAN url (no token inside)
+$remotes = Run-Git remote
+if ($lastCode -ne 0) { $remotes = @() }
+if (@($remotes) -contains "origin") {
+    Run-Git remote set-url origin "https://github.com/$owner/$name.git" | Out-Null
+    Say "      remote origin updated (clean url)" DarkGray
 } else {
-    & $git remote add origin $remoteUrl 2>$null
-    Say "      remote origin added" DarkGray
+    Run-Git remote add origin "https://github.com/$owner/$name.git" | Out-Null
+    Say "      remote origin added (clean url)" DarkGray
 }
 
-# git often writes progress to stderr; merge it so nothing trips Stop.
-$pushLog = & $git push -u origin main 2>&1
-$pushCode = $LASTEXITCODE
-$pushLog | ForEach-Object { Say "      $_" DarkGray }
+# probe reachability
+$null = Run-Git ls-remote "https://github.com/$owner/$name.git"
+if ($lastCode -ne 0) {
+    Say "      WARN: cannot reach github.com via git (proxy/network)." DarkYellow
+    Say "            Push will likely fail; check Clash node or try direct." DarkYellow
+}
+
+$pushLog = Run-Git push -u origin main
+$pushCode = $lastCode
+$pushLog | ForEach-Object { if ($_) { Say "      $_" DarkGray } }
 if ($pushCode -ne 0) {
     Say "ERROR: push failed" Red
-    Say "       If rejected by non-empty repo (README/.gitignore), recreate EMPTY repo," DarkGray
-    Say "       or force: git push -u origin main --force" DarkGray
+    Say "       'workflow scope' rejected  => remove .github/workflows from repo" DarkGray
+    Say "       'Authentication failed'    => run: git push  (refresh credentials)" DarkGray
+    Say "       'HTTP 408 / RPC failed'    => switch Clash node, or push direct" DarkGray
     exit 1
 }
 Say "      Pushed" Green
 
-# --- step 4: enable pages ---
+# --- step 4: enable pages (Deploy from a branch: main /docs) ---
 Say "[4/5] Enabling GitHub Pages (branch main, path /docs)..." Yellow
 $pagesBody = '{"source":{"branch":"main","path":"/docs"}}'
 try {
@@ -179,9 +174,6 @@ try {
     }
 }
 
-# --- scrub token from remote url ---
-& $git remote set-url origin "https://github.com/$owner/$name.git" | Out-Null
-
 # --- step 5: wait ---
 $pagesUrl = "https://$owner.github.io/$name/"
 Say "[5/5] Waiting for Pages deployment..." Yellow
@@ -189,7 +181,6 @@ Say "" White
 Say "================ DONE ================" Cyan
 Say "" White
 Say "  Pages URL : $pagesUrl" White
-Say "  Actions   : https://github.com/$owner/$name/actions" DarkGray
 Say "" White
 Say "  NEXT - generate APK with PWABuilder:" Cyan
 Say "    1. Open https://www.pwabuilder.com/" White
